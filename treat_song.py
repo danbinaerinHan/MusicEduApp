@@ -5,6 +5,28 @@ import pandas as pd
 NOTE_NAMES = ['도', '도#', '레', '레#', '미', '파', '파#', '솔', '솔#', '라', '라#', '시']
 YUL_NAMES = ['황', '대', '태', '협', '고', '중', '유', '임', '이', '남', '무', '응',]
 
+
+def midi_to_note_name(midi_num): 
+    octave = (midi_num // 12) - 1
+    note = NOTE_NAMES[midi_num % 12] 
+    if octave <= 2:
+        return f"낮은 {note}"
+    elif octave == 3:
+        return note
+    else:
+        return f"높은 {note}"
+
+def midi_to_yul(midi_num):
+    octave = (midi_num // 12) - 2
+    note = YUL_NAMES[(midi_num % 12) -3]
+    if octave <= 2:
+        return f"배{note}"
+    elif octave == 3:
+        return note
+    else:
+        return f"청{note}"
+
+
     # --- MIDI Number to Note Name ---
 class GetSongInfo:
     def __init__(self, sample, song_info):
@@ -12,7 +34,7 @@ class GetSongInfo:
         self.song_id = sample['song_id']
         self.song_type = song_info[self.song_id]['song_type']
         self.answers, self.measure_indices, self.performance_data = sample['answers'], sample['measure_indices'], sample['performance_data']
-        self.lyrics_per_measure = song_info[self.song_id]['lyrics_per_measure']
+        self.lyrics_per_measure = song_info[self.song_id]['lyrics_per_measure'] if self.song_type not in ['recorder', 'danso'] else None
         self.learning_points = song_info[self.song_id]['learning_points']
 
     # --- Pitch Difference Calculation ---
@@ -66,7 +88,20 @@ class GetSongInfo:
             level = "매우 높음" if avg_diff > 0 else "매우 낮음"
 
         wrong_lyrics = []
-        if lyrics_per_measure and str(measure) in lyrics_per_measure:
+        if self.song_type == 'recorder':
+            # recorder 타입일 때는 note_name만 사용
+            for local_idx, (a, p, _) in enumerate(notes):
+                diff = self.pitch_difference(a, p)
+                if diff and abs(diff) >= threshold:
+                    wrong_lyrics.append(f"{midi_to_note_name(a)}")
+        elif self.song_type == 'danso':
+            # danso 타입일 때는 yul_name만 사용
+            for local_idx, (a, p, _) in enumerate(notes):
+                diff = self.pitch_difference(a, p)
+                if diff and abs(diff) >= threshold:
+                    wrong_lyrics.append(f"{midi_to_yul(a)}")
+        elif lyrics_per_measure and str(measure) in lyrics_per_measure:
+            # 다른 타입일 때는 lyrics_per_measure 사용
             syllables = lyrics_per_measure[str(measure)]
             for local_idx, (a, p, _) in enumerate(notes):
                 diff = self.pitch_difference(a, p)
@@ -110,12 +145,12 @@ class GetSongInfo:
 
         pitch_accuracy_percent = (pitch_accurate / total * 100) if total else 100
         top_wrong_notes = sorted(note_errors.items(), key=lambda x: (len(x[1]), sum(x[1])), reverse=True)[:3]
-        frequent_wrong_notes = [
-            {
-                # "midi": int(n),
-                "note": midi_to_note_name(int(n))
-            } for n, _ in top_wrong_notes
-        ]
+        frequent_wrong_notes = []
+        for n, _ in top_wrong_notes:
+            if self.song_type == 'danso':
+                frequent_wrong_notes.append({"note": midi_to_yul(int(n))})
+            else:
+                frequent_wrong_notes.append({"note": midi_to_note_name(int(n))})
 
         top_by_error = sorted(error_stats.items(), key=lambda x: x[1]['avg_error'], reverse=True)[:top_n]
         top_by_count = sorted(error_stats.items(), key=lambda x: x[1]['error_count'], reverse=True)[:top_n]
@@ -124,7 +159,10 @@ class GetSongInfo:
         critical_measures = {}
         for m in selected:
             critical_measures[m] = analysis[m]
-            if self.lyrics_per_measure and str(m) in self.lyrics_per_measure:
+            if self.song_type in ['recorder', 'danso']:
+                # recorder, danso 타입일 때는 lyrics 추가하지 않음
+                pass
+            elif self.lyrics_per_measure and str(m) in self.lyrics_per_measure:
                 critical_measures[m]['lyrics'] = self.lyrics_per_measure[str(m)]
             if self.learning_points and str(m) in self.learning_points:
                 critical_measures[m]['learning_point'] = self.learning_points[str(m)]
@@ -142,24 +180,3 @@ class GetSongInfo:
         }
 
 
-
-def midi_to_note_name(midi_num): 
-    octave = (midi_num // 12) - 1
-    note = NOTE_NAMES[midi_num % 12] 
-    if octave <= 2:
-        return f"낮은 {note}"
-    elif octave == 3:
-        return note
-    else:
-        return f"높은 {note}"
-
-def midi_to_yul(midi_num):
-  octave = (midi_num // 12) - 2
-  note = YUL_NAMES[(midi_num % 12) -3]
-  print(note)
-  if octave <= 2:
-      return f"배{note}"
-  elif octave == 3:
-      return note
-  else:
-      return f"청{note}"
